@@ -1,9 +1,11 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { User } from './entities/user.entity';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DeleteResult, Repository } from 'typeorm';
+import * as bcrypt from 'bcrypt';
+import { LoginUserDto } from './dto/login-user.dto';
 
 @Injectable()
 export class UsersService {
@@ -12,7 +14,15 @@ export class UsersService {
     private userRepository: Repository<User>,
   ) {}
   async create(createUserDto: CreateUserDto): Promise<User> {
-    const user: User = await this.userRepository.create(createUserDto);
+    const { username, email, password } = createUserDto;
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    const user: User = this.userRepository.create({
+      username,
+      email,
+      password: hashedPassword,
+    });
     return await this.userRepository.save(user);
   }
 
@@ -20,11 +30,29 @@ export class UsersService {
     return await this.userRepository.find();
   }
 
-  async findOne(id: number): Promise<User> {
+  async findOneById(id: number): Promise<User> {
     const user: User = await this.userRepository.findOneBy({ id });
     if (!user) {
       throw new NotFoundException(`User with id ${id} not found`);
     }
+    return user;
+  }
+  async loginUser(loginUserDto: LoginUserDto): Promise<User> {
+    const { username, password } = loginUserDto;
+    const user: User = await this.userRepository.findOneBy({ username });
+
+    if (!user) {
+      throw new NotFoundException(`User with email ${username} not found`);
+    }
+
+    const isPasswordValid: boolean = await bcrypt.compare(
+      password,
+      user.password,
+    );
+    if (!isPasswordValid) {
+      throw new UnauthorizedException('Invalid credentials');
+    }
+
     return user;
   }
 
@@ -33,7 +61,7 @@ export class UsersService {
     if (!user) {
       throw new NotFoundException(`User with id ${id} not found`);
     }
-    await this.userRepository.merge(user, updateUserDto);
+    this.userRepository.merge(user, updateUserDto);
     return await this.userRepository.save(user);
   }
 
